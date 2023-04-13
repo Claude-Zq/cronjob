@@ -33,6 +33,15 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
+
+/*
+The first difference to notice is that kubebuilder has added the new API
+group's package (`batchv1`) to our scheme.  This means that we can use those
+objects in our controller.
+
+If we would be using any other CRD we would have to add their scheme the same way.
+Builtin types such as Job have their scheme added by `clientgoscheme`.
+*/
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
@@ -41,8 +50,14 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
+	utilruntime.Must(batchv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
+
+/*
+The other thing that's changed is that kubebuilder has added a block calling our
+CronJob controller's `SetupWithManager` method.
+*/
 
 func main() {
 	var metricsAddr string
@@ -85,6 +100,29 @@ func main() {
 		os.Exit(1)
 	}
 
+
+	if err = (&controller.CronJobReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "CronJob")
+		os.Exit(1)
+	}
+
+	/*
+		We'll also set up webhooks for our type, which we'll talk about next.
+		We just need to add them to the manager.  Since we might want to run
+		the webhooks separately, or not run them when testing our controller
+		locally, we'll put them behind an environment variable.
+
+		We'll just make sure to set `ENABLE_WEBHOOKS=false` when we run locally.
+	*/
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		if err = (&batchv1.CronJob{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "CronJob")
+			os.Exit(1)
+		}
+	}
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
